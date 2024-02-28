@@ -10,7 +10,7 @@ random.seed(42)
 
 isCuda = torch.cuda.is_available()
 device = torch.device("cuda" if isCuda else "cpu")
-        
+
 
 def get_all_words(filename):
     with open(f'./{filename}', 'r') as f:
@@ -18,31 +18,32 @@ def get_all_words(filename):
         words = []
         for word in raw_words:
             word = word.lower()
-            if len(word) >= MIN_WORD_LEN and len(word) <= MAX_WORD_LEN:
+            if MIN_WORD_LEN <= len(word) <= MAX_WORD_LEN:
                 words.append(Word(word))
-        
+
         return np.array(words)
+
 
 class Word():
     def __init__(self, word_str: str):
         assert len(word_str) <= MAX_WORD_LEN, f'Word {word_str} is too long!'
         assert len(word_str) > 0, 'Blank word found!'
-        
+
         self.string = word_str
         self.length = len(word_str)
         self.num_letters = len(np.unique(list(word_str)))
         self.blank = '_'
-        
+
         if self.blank in self.string:
             self.num_letters -= 1
-        
-    def encode(self, letters_to_use=[1]*26): # by default, use all letters (a-z)
+
+    def encode(self, letters_to_use=[1] * 26):  # by default, use all letters (a-z)
         '''
         Returns an tensor of one-hot encoded words, shape (MAX_WORD_LEN, 27)
         Letters indexed (0-25), index 26 is used for blanks/padding
         '''
         encoded_word = []
-        
+
         for letter in self.string:
             cur_letter = [0] * 27
             letter_idx = ord(letter) - 97
@@ -50,23 +51,23 @@ class Word():
                 cur_letter[letter_idx] = 1
             else:
                 cur_letter[26] = 1
-                
+
             encoded_word.append(cur_letter)
-         
+
         while len(encoded_word) < MAX_WORD_LEN:
             cur_letter = [0] * 27
             cur_letter[26] = 1
             encoded_word.append(cur_letter)
         return encoded_word
-    
+
     def encode_label(self):
-        encoded = [0]*26
+        encoded = [0] * 26
         for letter in self.string:
             if letter == self.blank:
                 continue
             encoded[ord(letter) - 97] = 1
         return encoded
-    
+
     def get_letters(self, within=True):
         letters = []
         others = list(range(26))
@@ -76,78 +77,78 @@ class Word():
             letter_idx = ord(letter) - 97
             if letter_idx in letters:
                 continue
-            
+
             letters.append(letter_idx)
             if letter_idx in others:
                 others.remove(letter_idx)
-        
+
         if within:
             return letters
         return others
-    
+
     def set_letter(self, pos, val):
         self.string = self.string[:pos] + val + self.string[pos + 1:]
         self.num_letters = len(np.unique(list(self.string)))
-        
+
     def is_complete(self):
         for i in self.string:
             if i == '_':
                 return False
         return True
-       
+
+
 def tensorize(list, value_type=torch.float32):
     return torch.tensor(list).to(device).to(value_type)
+
 
 class DataLoader():
     def __init__(self, filename, verbose=False):
         self.verbose = verbose
         self.words = get_all_words(filename)
-        
+
         self.shuffle()
-        
+
     def get_num_words(self):
         return len(self.words)
-    
-    
+
     def get_train_batch(self, batch_size: int, start_idx: int, fraction_correct: float, fraction_completed: float):
         '''
         Returns [encoded_words, prev_guesses, word_lengths, labels], each of length batchSize    
         '''
         encoded_words, word_lengths, prev_guesses, labels = [], [], [], []
-        for i in range(start_idx, start_idx+batch_size):
+        for i in range(start_idx, start_idx + batch_size):
             word: Word = self.words[i]
-            
+
             if self.verbose:
                 print(f'Word: {word.string}')
-            
+
             word_lengths.append(word.length)
-            labels.append(word.encode_label())            
-            
+            labels.append(word.encode_label())
+
             num_correct_letters = math.floor(fraction_completed * word.num_letters)
-            num_correct_letters = min(num_correct_letters, word.num_letters - 1) # don't allow fully completed words 
-            num_correct_letters = max(num_correct_letters, 1) # don't allow empty training examples 
+            num_correct_letters = min(num_correct_letters, word.num_letters - 1)  # don't allow fully completed words
+            num_correct_letters = max(num_correct_letters, 1)  # don't allow empty training examples
             correct_letters_idx = random.sample(word.get_letters(within=True), num_correct_letters)
             used_letters = [0] * 26
             for idx in correct_letters_idx:
                 used_letters[idx] = 1
-            encoded_words.append(word.encode(used_letters))            
-            
-            num_wrong_guesses = min(math.floor(num_correct_letters / fraction_correct), 26-num_correct_letters)
+            encoded_words.append(word.encode(used_letters))
+
+            num_wrong_guesses = min(math.floor(num_correct_letters / fraction_correct), 26 - num_correct_letters)
             num_wrong_guesses = min(26 - word.num_letters, num_wrong_guesses)
-            
+
             wrong_letters_idx = random.sample(word.get_letters(within=False), num_wrong_guesses)
             for idx in wrong_letters_idx:
                 used_letters[idx] = 1
             prev_guesses.append(used_letters)
 
-        return [tensorize(encoded_words, torch.bool), 
-                tensorize(prev_guesses, torch.bool), 
-                tensorize(word_lengths, torch.int8), 
+        return [tensorize(encoded_words, torch.bool),
+                tensorize(prev_guesses, torch.bool),
+                tensorize(word_lengths, torch.int8),
                 tensorize(labels, torch.bool)]
-    
+
     def shuffle(self):
         random.shuffle(self.words)
-
 
 
 # TESTING:
@@ -165,9 +166,7 @@ def main():
 
     print(f'Batch: {batch[0].shape}')
 
-    print(f'Time Taken (batch_size={batch_size}): {time_taken/1000000}ms')
-        
+    print(f'Time Taken (batch_size={batch_size}): {time_taken / 1000000}ms')
 
 # if __name__ == '__main__':
 #     main()
-        
